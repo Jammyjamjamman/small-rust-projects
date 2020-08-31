@@ -192,7 +192,8 @@ fn reduce(vals_stack: &mut Vec<f64>, ops_stack: &mut Vec<Token>, min_prec: u8) {
             max_op_prec = cur_op_prec;
         }
         else if let Token::Separator(Separator::LBrac) = token {
-            
+            vals_compute_stack.push(vals_stack.pop().unwrap());
+            vals_stack.push(process_compute_stacks(&mut vals_compute_stack, &mut ops_compute_stack));
         }
         else {
 
@@ -214,7 +215,7 @@ fn compute_string(token_string: &str) -> f64 {
 
         token_ptr += 1;
     }
-    println!("{:?}", token_queue);
+    // println!("{:?}", token_queue);
 
     // Step 2: Compute
     let mut cur_max_prec = 0;
@@ -245,7 +246,20 @@ fn compute_string(token_string: &str) -> f64 {
                     },
                 }
             },
-            Token::Separator(separator) => (),
+            Token::Separator(separator) => {
+                match separator {
+                    Separator::LBrac => {
+                        ops_stack.push(Token::Separator(Separator::LBrac));
+                        cur_max_prec = 0;
+                    },
+                    Separator::RBrac => {
+                        reduce(&mut vals_stack, &mut ops_stack, 0);
+                        if let Some(Token::Operator(last_op)) = ops_stack.get(0) {
+                            cur_max_prec = get_precedence(last_op);
+                        }
+                    }
+                }
+            },
         }
     }
     reduce(&mut vals_stack, &mut ops_stack, 0);
@@ -254,8 +268,10 @@ fn compute_string(token_string: &str) -> f64 {
 
 fn main() {
     println!("1+2-3/4+5: {} and {}", compute_string("1+2-3/4+5"), 1.+2.-3./4.+5.);
-    println!("1+2-3/4+5: {} and {}", compute_string("2^3E-4+2-3/8*4+5"), 2f64.powf(3E-4)+2.-3./8.*4.+5.);
+    println!("2^3E-4+2-3/8*4+5: {} and {}", compute_string("2^3E-4+2-3/8*4+5"), 2f64.powf(3E-4)+2.-3./8.*4.+5.);
     println!("3-2^3^4E-4: {} and {}", compute_string("3-2^3^4E-4"), 3.-2f64.powf(3f64.powf(4E-4)));
     println!("5E5/-6E10: {} and {}", compute_string("5E5/-6E10"), 5E5/-6E10);
     println!("3/5!+2: {} and {}", compute_string("3/5!+2^3E-4"), 3./factorial(5) as f64 +2f64.powf(3E-4));
+    println!("(2-3)*(4+5E-4)+3: {} and {}", compute_string("(2-3)*(4+5E-4)+3"), (2.-3.)*(4.+5E-4)+3.);
+    println!("(3!/(4+5E8))^3-2E-11: {} and {}", compute_string("(3!/(4+5E8))^3-2E-11"), (factorial(3) as f64 /(4.+5E8)).powf(3.)-2E-11);
 }
