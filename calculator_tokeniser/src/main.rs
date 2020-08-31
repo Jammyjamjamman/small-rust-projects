@@ -1,6 +1,7 @@
 use std::collections::VecDeque;
 
 // e.g + is binary, - is binary or right, ! is left
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
 enum OpType {
     Binary,
     Right,
@@ -8,6 +9,7 @@ enum OpType {
 }
 
 // Association Precedence.
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
 enum AscDir {
     Left,
     Right,
@@ -20,7 +22,8 @@ enum Operator {
     Mul,
     Div,
     Pow,
-    Fac
+    Fac,
+    Sin,
 }
 
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
@@ -65,7 +68,7 @@ fn get_lit(token_string: &str, token_ptr: &mut usize, lit_stack: &mut VecDeque<T
                 }
                 else {
                     if let Some(prev_char) = token_string.get(*token_ptr-1..*token_ptr) {
-                        if isdigit(prev_char) {
+                        if isdigit(prev_char) || prev_char == ")" {
                             false
                         }
                         else {
@@ -102,7 +105,14 @@ fn get_op_or_sep(token_string: &str, token_ptr: &mut usize, op_stack: &mut VecDe
             "!" => Token::Operator(Operator::Fac),
             "(" => Token::Separator(Separator::LBrac),
             ")" => Token::Separator(Separator::RBrac),
-            _ => panic!("Bad operator."),
+            _ => {
+                let function = token_string.get(*token_ptr..*token_ptr+3).unwrap();
+                *token_ptr+=2;
+                match function {
+                    "sin" => Token::Operator(Operator::Sin),
+                    _ => panic!("Bad operator: {}, stack: {:?}", function, op_stack),
+                }
+            },
         });
     }
 }
@@ -115,6 +125,7 @@ fn get_precedence(operator: &Operator) -> u8 {
         Operator::Mul => 2,
         Operator::Pow => 3,
         Operator::Fac => 4,
+        Operator::Sin => 5,
     }
 }
 
@@ -126,6 +137,7 @@ fn get_op_dir(operator: &Operator) -> AscDir {
         Operator::Mul => AscDir::Left,
         Operator::Pow => AscDir::Right,
         Operator::Fac => AscDir::Left,
+        Operator::Sin => AscDir::Left,
     }
 }
 
@@ -137,10 +149,12 @@ fn get_op_type(operator: &Operator) -> OpType {
         Operator::Mul => OpType::Binary,
         Operator::Pow => OpType::Binary,
         Operator::Fac => OpType::Left,
+        Operator::Sin => OpType::Right,
     }
 }
 
 fn process_compute_stacks(vals_compute_stack: &mut Vec<f64>, ops_compute_stack: &mut Vec<Operator>) -> f64 {
+    // println!("{:?}, {:?}", vals_compute_stack, ops_compute_stack);
     let mut result = vals_compute_stack.pop().unwrap();
     while let Some(op) = ops_compute_stack.pop() {
         match op {
@@ -148,6 +162,7 @@ fn process_compute_stacks(vals_compute_stack: &mut Vec<f64>, ops_compute_stack: 
             Operator::Sub => result -= vals_compute_stack.pop().unwrap(),
             Operator::Div => result /= vals_compute_stack.pop().unwrap(),
             Operator::Mul => result *= vals_compute_stack.pop().unwrap(),
+            Operator::Sin => result = result.sin(),
             _ => panic!("this shouldn't happen!")
         }
     }
@@ -159,6 +174,7 @@ fn reduce(vals_stack: &mut Vec<f64>, ops_stack: &mut Vec<Token>, min_prec: u8) {
     let mut vals_compute_stack = Vec::new();
 
     let mut max_op_prec = 0;
+    let mut found_rbrac = false;
 
     while let Some(token) = ops_stack.pop() {
         if let Token::Operator(op) = token {
@@ -176,7 +192,9 @@ fn reduce(vals_stack: &mut Vec<f64>, ops_stack: &mut Vec<Token>, min_prec: u8) {
             match get_op_dir(&op) {
                 AscDir::Left => {
                     ops_compute_stack.push(op);
-                    vals_compute_stack.push(vals_stack.pop().unwrap());
+                    if get_op_type(&op) == OpType::Binary {
+                        vals_compute_stack.push(vals_stack.pop().unwrap());
+                    }
                 },
                 AscDir::Right => {
                     match op {
@@ -185,7 +203,7 @@ fn reduce(vals_stack: &mut Vec<f64>, ops_stack: &mut Vec<Token>, min_prec: u8) {
                             let val1 = vals_stack.pop().unwrap();
                             vals_stack.push(val1.powf(val2));
                         },
-                        _ => panic!("this shouldn't happen!"),
+                        _ => panic!("Operator is not a right associative: {:?}", op),
                     }
                 },
             }
@@ -194,12 +212,19 @@ fn reduce(vals_stack: &mut Vec<f64>, ops_stack: &mut Vec<Token>, min_prec: u8) {
         else if let Token::Separator(Separator::LBrac) = token {
             vals_compute_stack.push(vals_stack.pop().unwrap());
             vals_stack.push(process_compute_stacks(&mut vals_compute_stack, &mut ops_compute_stack));
+            if !found_rbrac {
+                ops_stack.push(Token::Separator(Separator::LBrac));
+            }
+            break;
         }
-        else {
-
+        else if let Token::Separator(Separator::RBrac) = token {
+            found_rbrac = true;
         }
     }
-    vals_compute_stack.push(vals_stack.pop().unwrap());
+
+    if let Some(val) = vals_stack.pop() {
+        vals_compute_stack.push(val);
+    }
     vals_stack.push(process_compute_stacks(&mut vals_compute_stack, &mut ops_compute_stack));
 }
 
@@ -215,7 +240,6 @@ fn compute_string(token_string: &str) -> f64 {
 
         token_ptr += 1;
     }
-    // println!("{:?}", token_queue);
 
     // Step 2: Compute
     let mut cur_max_prec = 0;
@@ -232,6 +256,7 @@ fn compute_string(token_string: &str) -> f64 {
                 }
                 match get_op_type(&op) {
                     OpType::Left => {
+                        // Handles factorial.
                         match op {
                             Operator::Fac => {
                                 let result = factorial(vals_stack.pop().unwrap() as u64);
@@ -253,15 +278,22 @@ fn compute_string(token_string: &str) -> f64 {
                         cur_max_prec = 0;
                     },
                     Separator::RBrac => {
+                        ops_stack.push(Token::Separator(Separator::RBrac));
                         reduce(&mut vals_stack, &mut ops_stack, 0);
-                        if let Some(Token::Operator(last_op)) = ops_stack.get(0) {
-                            cur_max_prec = get_precedence(last_op);
+                        if ops_stack.len() > 0 {
+                            if let Some(Token::Operator(last_op)) = ops_stack.get(ops_stack.len()-1) {
+                                cur_max_prec = get_precedence(last_op);
+                            }
+                            else if let Some(Token::Separator(Separator::LBrac)) = ops_stack.get(ops_stack.len()-1) {
+                                cur_max_prec = 0;
+                            }
                         }
                     }
                 }
             },
         }
     }
+
     reduce(&mut vals_stack, &mut ops_stack, 0);
     vals_stack[0]
 }
@@ -274,4 +306,7 @@ fn main() {
     println!("3/5!+2: {} and {}", compute_string("3/5!+2^3E-4"), 3./factorial(5) as f64 +2f64.powf(3E-4));
     println!("(2-3)*(4+5E-4)+3: {} and {}", compute_string("(2-3)*(4+5E-4)+3"), (2.-3.)*(4.+5E-4)+3.);
     println!("(3!/(4+5E8))^3-2E-11: {} and {}", compute_string("(3!/(4+5E8))^3-2E-11"), (factorial(3) as f64 /(4.+5E8)).powf(3.)-2E-11);
+    println!("2*(sin(2+3)-4): {} and {}", compute_string("2*(sin(2+3)-4)"), 2.*((2f64+3f64).sin()-4.));
+    println!("sin((2+3)-4): {} and {}", compute_string("sin((2+3)-4)"), ((2f64+3f64)-4.).sin());
+    println!("2*(3*4+5), {} and {}", compute_string("2*(3*4+5)"), 2.*(3.*4.+5.));
 }
