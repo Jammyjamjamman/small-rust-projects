@@ -39,9 +39,9 @@ enum Token {
     Separator(Separator),
 }
 
-fn factorial(n: u64) -> u64 {
-    if n == 1 {
-        n
+pub fn factorial(n: u64) -> u64 {
+    if n < 1 {
+        1
     }
     else {
         n*factorial(n-1)
@@ -154,7 +154,6 @@ fn get_op_type(operator: &Operator) -> OpType {
 }
 
 fn process_compute_stacks(vals_compute_stack: &mut Vec<f64>, ops_compute_stack: &mut Vec<Operator>) -> f64 {
-    // println!("{:?}, {:?}", vals_compute_stack, ops_compute_stack);
     let mut result = vals_compute_stack.pop().unwrap();
     while let Some(op) = ops_compute_stack.pop() {
         match op {
@@ -228,7 +227,7 @@ fn reduce(vals_stack: &mut Vec<f64>, ops_stack: &mut Vec<Token>, min_prec: u8) {
     vals_stack.push(process_compute_stacks(&mut vals_compute_stack, &mut ops_compute_stack));
 }
 
-fn compute_string(token_string: &str) -> f64 {
+pub fn compute_string(token_string: &str) -> f64 {
     // Step 1: Tokenize.
     let mut token_queue = VecDeque::new();
     
@@ -241,7 +240,7 @@ fn compute_string(token_string: &str) -> f64 {
         token_ptr += 1;
     }
 
-    // Step 2: Compute
+    // Step 2: Compute.
     let mut cur_max_prec = 0;
 
     let mut vals_stack = Vec::new();
@@ -298,15 +297,57 @@ fn compute_string(token_string: &str) -> f64 {
     vals_stack[0]
 }
 
-fn main() {
-    println!("1+2-3/4+5: {} and {}", compute_string("1+2-3/4+5"), 1.+2.-3./4.+5.);
-    println!("2^3E-4+2-3/8*4+5: {} and {}", compute_string("2^3E-4+2-3/8*4+5"), 2f64.powf(3E-4)+2.-3./8.*4.+5.);
-    println!("3-2^3^4E-4: {} and {}", compute_string("3-2^3^4E-4"), 3.-2f64.powf(3f64.powf(4E-4)));
-    println!("5E5/-6E10: {} and {}", compute_string("5E5/-6E10"), 5E5/-6E10);
-    println!("3/5!+2: {} and {}", compute_string("3/5!+2^3E-4"), 3./factorial(5) as f64 +2f64.powf(3E-4));
-    println!("(2-3)*(4+5E-4)+3: {} and {}", compute_string("(2-3)*(4+5E-4)+3"), (2.-3.)*(4.+5E-4)+3.);
-    println!("(3!/(4+5E8))^3-2E-11: {} and {}", compute_string("(3!/(4+5E8))^3-2E-11"), (factorial(3) as f64 /(4.+5E8)).powf(3.)-2E-11);
-    println!("2*(sin(2+3)-4): {} and {}", compute_string("2*(sin(2+3)-4)"), 2.*((2f64+3f64).sin()-4.));
-    println!("sin((2+3)-4): {} and {}", compute_string("sin((2+3)-4)"), ((2f64+3f64)-4.).sin());
-    println!("2*(3*4+5), {} and {}", compute_string("2*(3*4+5)"), 2.*(3.*4.+5.));
+use std::os::raw::{c_char};
+use std::ffi::{CStr};
+
+#[no_mangle]
+pub extern fn calculate_string(to: *const c_char) -> f64 {
+    let c_str = unsafe { CStr::from_ptr(to) };
+    let calculation = match c_str.to_str() {
+        Err(_) => "1",
+        Ok(string) => string,
+    };
+
+    compute_string(calculation)
+}
+
+
+#[cfg(target_os="android")]
+#[allow(non_snake_case)]
+pub mod android {
+    extern crate jni;
+
+    use super::*;
+    use self::jni::JNIEnv;
+    use self::jni::objects::{JClass, JString};
+    use self::jni::sys::{jstring, jdouble};
+
+    #[no_mangle]
+    pub unsafe extern fn Java_com_example_calculator_RustCalculator_calculateString(env: JNIEnv, _: JClass, java_pattern: JString) -> jdouble {
+        calculate_string(env.get_string(java_pattern).expect("invalid pattern string").as_ptr())
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::{compute_string, factorial};
+
+    #[test]
+    fn test_calculations() {
+        assert_eq!(compute_string("1+2-3/4+5"), 1.+2.-3./4.+5.);
+        assert_eq!(compute_string("1+2-3/4+5"), 1.+2.-3./4.+5.);
+        assert_eq!(compute_string("3-2^3^4E-4"), 3.-2f64.powf(3f64.powf(4E-4)));
+        assert_eq!(compute_string("5E5/-6E10"), 5E5/-6E10);
+        assert_eq!(compute_string("3/5!+2^3E-4"), 3./factorial(5) as f64 +2f64.powf(3E-4));
+        assert_eq!(compute_string("(2-3)*(4+5E-4)+3"), (2.-3.)*(4.+5E-4)+3.);
+        assert_eq!(compute_string("(3!/(4+5.2E8))^3-2E-11"), (factorial(3) as f64 /(4.+5.2E8)).powf(3.)-2E-11);
+        assert_eq!(compute_string("2*(sin(2+3)-4)"), 2.*((2f64+3f64).sin()-4.));
+        assert_eq!(compute_string("sin((2+3)-4)"), ((2f64+3f64)-4.).sin());
+        assert_eq!(compute_string("2*(3*4+5)"), 2.*(3.*4.+5.));
+        assert_eq!(compute_string("3333333333"), 3333333333.);
+        assert_eq!(compute_string("2.5-0.3E1"), 2.5-0.3E1);
+        assert_eq!(compute_string("0/0").is_nan(), (0f64/0.).is_nan());
+        assert_eq!(compute_string("3-2^3^sin(4E-4)"), 3.-2f64.powf(3f64.powf(4E-4f64.sin())));
+    }
 }
