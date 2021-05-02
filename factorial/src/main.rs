@@ -9,4 +9,5 @@ fn factorial(val: u64) -> u64 {
 
 fn main() {
     println!("factorial 10 is {}", factorial(10));
+    println!("factorial 13 is {}", factorial(13));
 }
